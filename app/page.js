@@ -56,12 +56,22 @@ export default function Home() {
   const [showInstall, setShowInstall] = useState(false)
   const [showIosHint, setShowIosHint] = useState(false)
 
+  // ── Narrow screen detection (subtitle wrapping) ───────────────────────────
+  const [isNarrow, setIsNarrow] = useState(false)
+
   useEffect(() => {
     const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
     if (mobile) setShowInstall(true)
     const handler = e => { e.preventDefault(); setInstallPrompt(e) }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  useEffect(() => {
+    const check = () => setIsNarrow(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
   }, [])
 
   const handleInstall = async () => {
@@ -226,12 +236,12 @@ export default function Home() {
   return (
     <main style={main}>
       <div style={card}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', width: '100%' }}>
-          <div>
+        <div style={{ width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <h1 style={h1}>whispr</h1>
-            <p style={sub}>48h temporary · end-to-end encrypted · no logs · open source · self hostable</p>
+            <button onClick={() => setShowLegacy(true)} style={legacyBtn}>legacy link chat →</button>
           </div>
-          <button onClick={() => setShowLegacy(true)} style={legacyBtn}>legacy link chat →</button>
+          <p style={{ ...sub, whiteSpace: isNarrow ? 'normal' : 'nowrap' }}>48h temporary · end-to-end encrypted · no logs · open source · self hostable</p>
         </div>
 
         {!created ? (
@@ -343,7 +353,7 @@ const card = {
   width: '100%', maxWidth: 380,
 }
 const h1 = { margin: 0, fontSize: 28, color: '#ddd', fontWeight: 400, letterSpacing: 2 }
-const sub = { margin: 0, fontSize: 10, color: '#444', whiteSpace: 'nowrap' }
+const sub = { margin: 0, fontSize: 10, color: '#444' }
 const checkLabel = { display: 'flex', alignItems: 'center', fontSize: 13, color: '#777', cursor: 'pointer', userSelect: 'none' }
 const hint = { margin: '0 0 6px', fontSize: 11, color: '#555' }
 const pwRow = {
