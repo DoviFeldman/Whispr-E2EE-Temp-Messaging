@@ -229,7 +229,7 @@ export default function Home() {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', width: '100%' }}>
           <div>
             <h1 style={h1}>whispr</h1>
-            <p style={sub}>temporary · end-to-end encrypted · no logs</p>
+            <p style={sub}>48h temporary · end-to-end encrypted · no logs · open source · self hostable</p>
           </div>
           <button onClick={() => setShowLegacy(true)} style={legacyBtn}>legacy link chat →</button>
         </div>
@@ -343,7 +343,7 @@ const card = {
   width: '100%', maxWidth: 380,
 }
 const h1 = { margin: 0, fontSize: 28, color: '#ddd', fontWeight: 400, letterSpacing: 2 }
-const sub = { margin: 0, fontSize: 11, color: '#444' }
+const sub = { margin: 0, fontSize: 10, color: '#444', whiteSpace: 'nowrap' }
 const checkLabel = { display: 'flex', alignItems: 'center', fontSize: 13, color: '#777', cursor: 'pointer', userSelect: 'none' }
 const hint = { margin: '0 0 6px', fontSize: 11, color: '#555' }
 const pwRow = {
