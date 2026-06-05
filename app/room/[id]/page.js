@@ -125,6 +125,8 @@ export default function RoomPage() {
       const pin = sessionStorage.getItem(`whispr:${roomId}:pin`)
       if (!pin) { setPhase('pin'); return }
 
+      if (info.hasPassword && !skipPasswordCheck) { setPhase('password'); return }
+
       // Verify the PIN matches this room (client-side check, no server round-trip)
       const expectedId = await pinToRoomId(pin)
       if (expectedId !== roomId) {

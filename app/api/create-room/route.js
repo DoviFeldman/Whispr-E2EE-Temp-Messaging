@@ -13,8 +13,8 @@ export async function POST(req) {
       const meta = {
         createdAt: Date.now(),
         isPinRoom: true,
-        hasPassword: false,
-        passwordHash: null,
+        hasPassword: !!passwordHash,
+        passwordHash: passwordHash || null,
       }
       await redis.set(`room:${pinRoomId}:meta`, JSON.stringify(meta), { ex: ROOM_TTL, nx: true })
       return NextResponse.json({ roomId: pinRoomId })

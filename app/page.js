@@ -14,7 +14,12 @@ function generatePassword(len = 8) {
     .map(b => chars[b % chars.length]).join('')
 }
 
-// Derives a deterministic room ID from a PIN (SHA-256, first 12 bytes, base64url)
+function generateLinkPin(len = 14) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from(crypto.getRandomValues(new Uint8Array(len)))
+    .map(b => chars[b % chars.length]).join('')
+}
+
 async function pinToRoomId(pin) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('whispr-pin-v1:' + pin))
   return btoa(String.fromCharCode(...new Uint8Array(buf).slice(0, 12)))
@@ -23,39 +28,85 @@ async function pinToRoomId(pin) {
 
 export default function Home() {
   const router = useRouter()
+
+  // ── Main (PIN-link) chat ──────────────────────────────────────────────────
   const [usePassword, setUsePassword] = useState(false)
   const [password, setPassword] = useState('')
   const [creating, setCreating] = useState(false)
-  const [created, setCreated] = useState(null) // { url, password }
+  const [created, setCreated] = useState(null) // { shareUrl, password, roomId, linkPin }
   const [copied, setCopied] = useState(false)
   const [copiedPw, setCopiedPw] = useState(false)
 
+  // ── Legacy (ECDH 2-party) chat ────────────────────────────────────────────
+  const [showLegacy, setShowLegacy] = useState(false)
+  const [legacyUsePassword, setLegacyUsePassword] = useState(false)
+  const [legacyPassword, setLegacyPassword] = useState('')
+  const [legacyCreating, setLegacyCreating] = useState(false)
+  const [legacyCreated, setLegacyCreated] = useState(null)
+  const [legacyCopied, setLegacyCopied] = useState(false)
+  const [legacyCopiedPw, setLegacyCopiedPw] = useState(false)
+
+  // ── Manual PIN chat ───────────────────────────────────────────────────────
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState('')
   const [joiningPin, setJoiningPin] = useState(false)
 
+  // ── Handlers: PIN-link ────────────────────────────────────────────────────
   const handleTogglePassword = (e) => {
     setUsePassword(e.target.checked)
     if (e.target.checked && !password) setPassword(generatePassword())
   }
 
-  const createRoom = async () => {
+  const createChat = async () => {
     setCreating(true)
+    const linkPin = generateLinkPin()
+    const roomId = await pinToRoomId(linkPin)
     let passwordHash = null
-    if (usePassword && password) {
-      passwordHash = await hashPassword(password)
-    }
+    if (usePassword && password) passwordHash = await hashPassword(password)
+    await fetch('/api/create-room', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinRoomId: roomId, passwordHash }),
+    })
+    setCreated({ shareUrl: `${window.location.origin}/p#${linkPin}`, password: usePassword ? password : null, roomId, linkPin })
+    setCreating(false)
+  }
+
+  const openChat = () => {
+    sessionStorage.setItem(`whispr:${created.roomId}:pin`, created.linkPin)
+    router.push(`/room/${created.roomId}`)
+  }
+
+  const resetMain = () => { setCreated(null); setPassword(''); setUsePassword(false) }
+
+  // ── Handlers: Legacy ──────────────────────────────────────────────────────
+  const handleLegacyTogglePassword = (e) => {
+    setLegacyUsePassword(e.target.checked)
+    if (e.target.checked && !legacyPassword) setLegacyPassword(generatePassword())
+  }
+
+  const createLegacyRoom = async () => {
+    setLegacyCreating(true)
+    let passwordHash = null
+    if (legacyUsePassword && legacyPassword) passwordHash = await hashPassword(legacyPassword)
     const res = await fetch('/api/create-room', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passwordHash }),
     })
     const { roomId } = await res.json()
-    const url = `${window.location.origin}/room/${roomId}`
-    setCreated({ url, password: usePassword ? password : null })
-    setCreating(false)
+    setLegacyCreated({ url: `${window.location.origin}/room/${roomId}`, password: legacyUsePassword ? legacyPassword : null })
+    setLegacyCreating(false)
   }
 
+  const closeLegacy = () => {
+    setShowLegacy(false)
+    setLegacyCreated(null)
+    setLegacyPassword('')
+    setLegacyUsePassword(false)
+  }
+
+  // ── Handlers: PIN ─────────────────────────────────────────────────────────
   const handlePinJoin = async () => {
     const trimmed = pin.trim()
     if (trimmed.length < 4) { setPinError('min 4 characters'); return }
@@ -63,9 +114,7 @@ export default function Home() {
     setJoiningPin(true)
     setPinError('')
     const roomId = await pinToRoomId(trimmed)
-    // Store pin in sessionStorage so the room page can derive the key
     sessionStorage.setItem(`whispr:${roomId}:pin`, trimmed)
-    // Create room if it doesn't exist yet (SET NX — safe to call even if already created)
     await fetch('/api/create-room', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -80,27 +129,95 @@ export default function Home() {
     setTimeout(() => setCopiedFn(false), 1800)
   }
 
+  // ── Legacy view ───────────────────────────────────────────────────────────
+  if (showLegacy) {
+    return (
+      <main style={main}>
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <h1 style={h1}>whispr</h1>
+              <p style={sub}>legacy · 2-party · ecdh encrypted</p>
+            </div>
+            <button onClick={closeLegacy} style={ghostBtn}>← back</button>
+          </div>
+
+          {!legacyCreated ? (
+            <>
+              <label style={checkLabel}>
+                <input type="checkbox" checked={legacyUsePassword} onChange={handleLegacyTogglePassword} style={{ accentColor: '#444', marginRight: 8 }} />
+                password protect this chat
+              </label>
+              {legacyUsePassword && (
+                <div style={{ width: '100%' }}>
+                  <p style={hint}>share this password separately, before the link.</p>
+                  <div style={pwRow}>
+                    <span style={pwText}>{legacyPassword}</span>
+                    <button onClick={() => copy(legacyPassword, setLegacyCopiedPw)} style={smallBtn}>
+                      {legacyCopiedPw ? 'copied' : 'copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button onClick={createLegacyRoom} disabled={legacyCreating} style={bigBtn}>
+                {legacyCreating ? 'creating...' : 'create link'}
+              </button>
+            </>
+          ) : (
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {legacyCreated.password && (
+                <div>
+                  <p style={hint}>password</p>
+                  <div style={pwRow}>
+                    <span style={pwText}>{legacyCreated.password}</span>
+                    <button onClick={() => copy(legacyCreated.password, setLegacyCopiedPw)} style={smallBtn}>
+                      {legacyCopiedPw ? 'copied' : 'copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div>
+                <p style={hint}>chat link · expires 48h after last message</p>
+                <div style={pwRow}>
+                  <span style={{ ...pwText, fontSize: 11, wordBreak: 'break-all' }}>{legacyCreated.url}</span>
+                  <button onClick={() => copy(legacyCreated.url, setLegacyCopied)} style={smallBtn}>
+                    {legacyCopied ? 'copied' : 'copy'}
+                  </button>
+                </div>
+              </div>
+              <button onClick={() => router.push(legacyCreated.url)} style={bigBtn}>open chat →</button>
+              <button onClick={() => { setLegacyCreated(null); setLegacyPassword(''); setLegacyUsePassword(false) }} style={ghostBtn}>
+                create another
+              </button>
+            </div>
+          )}
+        </div>
+        <p style={footer}>messages are encrypted in your browser · the server never sees them</p>
+      </main>
+    )
+  }
+
+  // ── Main view ─────────────────────────────────────────────────────────────
   return (
     <main style={main}>
       <div style={card}>
-        <h1 style={h1}>whispr</h1>
-        <p style={sub}>temporary · end-to-end encrypted · no logs</p>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', width: '100%' }}>
+          <div>
+            <h1 style={h1}>whispr</h1>
+            <p style={sub}>temporary · end-to-end encrypted · no logs</p>
+          </div>
+          <button onClick={() => setShowLegacy(true)} style={legacyBtn}>legacy link chat →</button>
+        </div>
 
         {!created ? (
           <>
             <label style={checkLabel}>
-              <input
-                type="checkbox"
-                checked={usePassword}
-                onChange={handleTogglePassword}
-                style={{ accentColor: '#444', marginRight: 8 }}
-              />
+              <input type="checkbox" checked={usePassword} onChange={handleTogglePassword} style={{ accentColor: '#444', marginRight: 8 }} />
               password protect this chat
             </label>
-
             {usePassword && (
               <div style={{ width: '100%' }}>
-                <p style={hint}>remember to paste this before copying the chat link so it's saved.</p>
+                <p style={hint}>share this password separately, before the link.</p>
                 <div style={pwRow}>
                   <span style={pwText}>{password}</span>
                   <button onClick={() => copy(password, setCopiedPw)} style={smallBtn}>
@@ -109,31 +226,8 @@ export default function Home() {
                 </div>
               </div>
             )}
-
-            <button onClick={createRoom} disabled={creating} style={bigBtn}>
+            <button onClick={createChat} disabled={creating} style={bigBtn}>
               {creating ? 'creating...' : 'create chat link'}
-            </button>
-
-            <div style={divider} />
-
-            <input
-              type="text"
-              placeholder="create/join chat with pin"
-              value={pin}
-              onChange={e => { setPin(e.target.value.slice(0, 20)); setPinError('') }}
-              onKeyDown={e => e.key === 'Enter' && handlePinJoin()}
-              maxLength={20}
-              autoComplete="off"
-              spellCheck={false}
-              style={pinInputStyle}
-            />
-            {pinError && <p style={{ margin: '0', fontSize: 11, color: '#f66' }}>{pinError}</p>}
-            <button
-              onClick={handlePinJoin}
-              disabled={joiningPin || pin.length < 4}
-              style={{ ...bigBtn, opacity: pin.length < 4 ? 0.4 : 1 }}
-            >
-              {joiningPin ? 'joining...' : 'join with pin →'}
             </button>
           </>
         ) : (
@@ -150,27 +244,48 @@ export default function Home() {
               </div>
             )}
             <div>
-              <p style={hint}>chat link · expires 48h after last message</p>
+              <p style={hint}>share link · anyone with this opens the chat</p>
               <div style={pwRow}>
-                <span style={{ ...pwText, fontSize: 11, wordBreak: 'break-all' }}>{created.url}</span>
-                <button onClick={() => copy(created.url, setCopied)} style={smallBtn}>
+                <span style={{ ...pwText, fontSize: 11, wordBreak: 'break-all' }}>{created.shareUrl}</span>
+                <button onClick={() => copy(created.shareUrl, setCopied)} style={smallBtn}>
                   {copied ? 'copied' : 'copy'}
                 </button>
               </div>
             </div>
-
-            <button onClick={() => router.push(created.url)} style={bigBtn}>open chat →</button>
-            <button onClick={() => { setCreated(null); setPassword(''); setUsePassword(false) }} style={ghostBtn}>
-              create another
-            </button>
+            <button onClick={openChat} style={bigBtn}>open chat →</button>
+            <button onClick={resetMain} style={ghostBtn}>create another</button>
           </div>
         )}
+
+        <div style={divider} />
+
+        <input
+          type="text"
+          placeholder="create/join chat with pin"
+          value={pin}
+          onChange={e => { setPin(e.target.value.slice(0, 20)); setPinError('') }}
+          onKeyDown={e => e.key === 'Enter' && handlePinJoin()}
+          maxLength={20}
+          autoComplete="off"
+          spellCheck={false}
+          style={pinInputStyle}
+        />
+        {pinError && <p style={{ margin: '0', fontSize: 11, color: '#f66' }}>{pinError}</p>}
+        <button
+          onClick={handlePinJoin}
+          disabled={joiningPin || pin.length < 4}
+          style={{ ...bigBtn, opacity: pin.length < 4 ? 0.4 : 1 }}
+        >
+          {joiningPin ? 'joining...' : 'join with pin →'}
+        </button>
       </div>
 
       <p style={footer}>messages are encrypted in your browser · the server never sees them</p>
     </main>
   )
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const main = {
   minHeight: '100dvh', display: 'flex', flexDirection: 'column',
@@ -203,6 +318,10 @@ const bigBtn = {
 const ghostBtn = {
   background: 'none', border: 'none', color: '#444', fontFamily: 'monospace',
   fontSize: 12, cursor: 'pointer', padding: 0, textAlign: 'left',
+}
+const legacyBtn = {
+  background: 'none', border: 'none', color: '#2e2e2e', fontFamily: 'monospace',
+  fontSize: 10, cursor: 'pointer', padding: 0, letterSpacing: 0.3, flexShrink: 0,
 }
 const footer = { position: 'fixed', bottom: 16, fontSize: 10, color: '#333' }
 const divider = { width: '100%', height: 1, background: '#1e1e1e' }
