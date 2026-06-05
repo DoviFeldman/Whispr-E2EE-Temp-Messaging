@@ -25,7 +25,7 @@ export default function PinLinkGateway() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinRoomId: roomId }),
       })
-      router.replace(`/room/${roomId}`)
+      router.replace(`/room/${roomId}#${pin}`)
     }
 
     join().catch(() => setStatus('something went wrong'))

@@ -115,6 +115,12 @@ export default function RoomPage() {
 
   // Init: check room, handle PIN or ECDH setup
   const init = useCallback(async (skipPasswordCheck = false) => {
+    // If a PIN-link URL was shared directly (/room/id#pin), sync the hash into sessionStorage
+    const hashPin = window.location.hash.slice(1)
+    if (hashPin && !sessionStorage.getItem(`whispr:${roomId}:pin`)) {
+      sessionStorage.setItem(`whispr:${roomId}:pin`, hashPin)
+    }
+
     // 1. Check room exists
     const infoRes = await fetch(`/api/room-info?roomId=${roomId}`)
     const info = await infoRes.json()
