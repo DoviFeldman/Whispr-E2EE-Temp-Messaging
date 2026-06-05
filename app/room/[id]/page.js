@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { deriveName } from '../../../lib/names'
 
 // ── Crypto helpers ────────────────────────────────────────────────────────────
 
@@ -49,9 +50,10 @@ async function pinToRoomId(pin) {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
-async function encryptMessage(sharedKey, text) {
+async function encryptMessage(sharedKey, text, name) {
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const encoded = new TextEncoder().encode(text)
+  const payload = name ? JSON.stringify({ v: 1, name, text }) : text
+  const encoded = new TextEncoder().encode(payload)
   const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, encoded)
   const ivB64 = btoa(String.fromCharCode(...iv))
   const dataB64 = btoa(String.fromCharCode(...new Uint8Array(cipher)))
@@ -67,6 +69,15 @@ async function decryptMessage(sharedKey, encryptedPayload, ivB64) {
   } catch {
     return '[decryption failed]'
   }
+}
+
+function parsePayload(plain) {
+  if (!plain || plain === '[decryption failed]') return { text: plain, name: null }
+  try {
+    const obj = JSON.parse(plain)
+    if (obj && obj.v === 1 && typeof obj.text === 'string') return { text: obj.text, name: obj.name || null }
+  } catch {}
+  return { text: plain, name: null }
 }
 
 // Password hashing (SHA-256, hex)
@@ -111,6 +122,10 @@ export default function RoomPage() {
   const [status, setStatus] = useState('')
   const [roomType, setRoomType] = useState(null) // 'pin' | 'ecdh'
   const [isApp, setIsApp] = useState(false)
+  const [displayName, setDisplayName] = useState(null)
+  const [nameMap, setNameMap] = useState({})
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
   const pollRef = useRef(null)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -218,6 +233,16 @@ export default function RoomPage() {
     setIsApp(window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone)
   }, [])
 
+  useEffect(() => {
+    if (phase !== 'chatting' || !myTag || !roomId) return
+    const stored = sessionStorage.getItem(`whispr:${roomId}:displayName`)
+    const name = stored || deriveName(myTag, roomId)
+    if (!stored) sessionStorage.setItem(`whispr:${roomId}:displayName`, name)
+    setDisplayName(name)
+  }, [phase, myTag, roomId])
+
+  useEffect(() => { if (editingName) setNameInput(displayName || '') }, [editingName, displayName])
+
   // Poll for keys + messages
   useEffect(() => {
     if (phase === 'expired' || phase === 'loading' || phase === 'password' || phase === 'pin') return
@@ -262,6 +287,10 @@ export default function RoomPage() {
       if (decryptedCache[m.id]) return
       const plain = await decryptMessage(sharedKey, m.encryptedPayload, m.iv)
       setDecryptedCache(prev => ({ ...prev, [m.id]: plain }))
+      const { name } = parsePayload(plain)
+      if (name && m.senderTag) {
+        setNameMap(prev => prev[m.senderTag] === name ? prev : { ...prev, [m.senderTag]: name })
+      }
     })
   }, [messages, sharedKey, decryptedCache])
 
@@ -294,7 +323,8 @@ export default function RoomPage() {
     const last = messages[messages.length - 1]
     const plain = decryptedCache[last?.id]
     if (!plain) return
-    const snippet = plain.startsWith('data:') ? '📎 attachment' : plain.slice(0, 80)
+    const { text: plainText } = parsePayload(plain)
+    const snippet = plainText.startsWith('data:') ? '📎 attachment' : plainText.slice(0, 80)
     try {
       const chats = JSON.parse(localStorage.getItem('whispr:chats') || '[]')
       const idx = chats.findIndex(c => c.roomId === roomId)
@@ -331,7 +361,7 @@ export default function RoomPage() {
 
   const sendText = async () => {
     if (!input.trim() || !sharedKey) return
-    const { encryptedPayload, iv } = await encryptMessage(sharedKey, input.trim())
+    const { encryptedPayload, iv } = await encryptMessage(sharedKey, input.trim(), displayName)
     await fetch('/api/send-message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -348,7 +378,7 @@ export default function RoomPage() {
       r.onerror = rej
       r.readAsDataURL(file)
     })
-    const { encryptedPayload, iv } = await encryptMessage(sharedKey, b64)
+    const { encryptedPayload, iv } = await encryptMessage(sharedKey, b64, displayName)
     await fetch('/api/send-message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -434,30 +464,70 @@ export default function RoomPage() {
         </div>
       )}
       <div style={msgsStyle}>
-        {messages.map(m => {
-          const isMe = m.senderTag === myTag
-          const plain = decryptedCache[m.id]
-          const isDataUrl = plain && plain.startsWith('data:')
-          return (
-            <div key={m.id} style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
-              <div style={{ ...bubbleStyle, background: isMe ? '#2a2a2a' : '#1e1e1e', maxWidth: '72%' }}>
-                {plain === undefined && <Dim style={{ fontSize: 12 }}>decrypting...</Dim>}
-                {plain && isDataUrl && m.isFile && m.fileType?.startsWith('image/') && (
-                  <img src={plain} alt={m.fileName || 'image'} style={{ maxWidth: '100%', borderRadius: 6, display: 'block' }} />
+        {(() => {
+          const firstInRun = new Set()
+          messages.forEach((m, i) => {
+            if (i === 0 || messages[i - 1].senderTag !== m.senderTag) firstInRun.add(m.id)
+          })
+          return messages.map(m => {
+            const isMe = m.senderTag === myTag
+            const plain = decryptedCache[m.id]
+            const { text: msgText } = parsePayload(plain)
+            const isDataUrl = msgText && msgText.startsWith('data:')
+            const showLabel = firstInRun.has(m.id)
+            const labelText = isMe
+              ? (displayName || m.senderTag.slice(0, 5))
+              : (nameMap[m.senderTag] || m.senderTag.slice(0, 5))
+            return (
+              <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
+                {showLabel && (
+                  <div
+                    style={{ fontSize: 11, color: '#3a3a3a', fontFamily: 'monospace', marginBottom: 2, marginLeft: isMe ? 0 : 4, marginRight: isMe ? 4 : 0, cursor: isMe ? 'pointer' : 'default', userSelect: 'none' }}
+                    onClick={isMe ? () => setEditingName(true) : undefined}
+                  >
+                    {isMe && editingName ? (
+                      <input
+                        autoFocus
+                        value={nameInput}
+                        onChange={e => setNameInput(e.target.value.slice(0, 24))}
+                        onBlur={() => {
+                          const trimmed = nameInput.trim()
+                          if (trimmed) {
+                            sessionStorage.setItem(`whispr:${roomId}:displayName`, trimmed)
+                            setDisplayName(trimmed)
+                          }
+                          setEditingName(false)
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.target.blur()
+                          if (e.key === 'Escape') { setEditingName(false); setNameInput(displayName || '') }
+                        }}
+                        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #3a3a3a', color: '#555', fontFamily: 'monospace', fontSize: 11, outline: 'none', padding: '0 2px', width: 90 }}
+                      />
+                    ) : labelText}
+                  </div>
                 )}
-                {plain && isDataUrl && m.isFile && !m.fileType?.startsWith('image/') && (
-                  <a href={plain} download={m.fileName} style={{ color: '#aaa', fontSize: 13 }}>↓ {m.fileName}</a>
-                )}
-                {plain && !isDataUrl && (
-                  <span style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{plain}</span>
-                )}
-                <span style={{ fontSize: 10, opacity: 0.35, display: 'block', marginTop: 4, textAlign: isMe ? 'right' : 'left' }}>
-                  {new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                <div style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', width: '100%' }}>
+                  <div style={{ ...bubbleStyle, background: isMe ? '#2a2a2a' : '#1e1e1e', maxWidth: '72%' }}>
+                    {plain === undefined && <Dim style={{ fontSize: 12 }}>decrypting...</Dim>}
+                    {msgText && isDataUrl && m.isFile && m.fileType?.startsWith('image/') && (
+                      <img src={msgText} alt={m.fileName || 'image'} style={{ maxWidth: '100%', borderRadius: 6, display: 'block' }} />
+                    )}
+                    {msgText && isDataUrl && m.isFile && !m.fileType?.startsWith('image/') && (
+                      <a href={msgText} download={m.fileName} style={{ color: '#aaa', fontSize: 13 }}>↓ {m.fileName}</a>
+                    )}
+                    {msgText && !isDataUrl && (
+                      <span style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msgText}</span>
+                    )}
+                    <span style={{ fontSize: 10, opacity: 0.35, display: 'block', marginTop: 4, textAlign: isMe ? 'right' : 'left' }}>
+                      {new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        })()}
         {messages.length === 0 && <Dim style={{ textAlign: 'center', marginTop: 60 }}>e2e encrypted · messages expire 48h after last activity</Dim>}
         <div ref={bottomRef} />
       </div>
