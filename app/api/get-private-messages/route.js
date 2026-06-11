@@ -12,11 +12,11 @@ export async function GET(req) {
   const meta = await redis.get(`room:${roomId}:meta`)
   if (!meta) return NextResponse.json({ exists: false, messages: [] })
 
-  const raw = await redis.lrange(`room:${roomId}:whispers`, 0, -1)
+  const raw = await redis.lrange(`room:${roomId}:privateMessages`, 0, -1)
   const messages = raw
     .map(m => (typeof m === 'string' ? JSON.parse(m) : m))
-    // Only ever return a whisper to one of its two participants. This filter is the
-    // whole privacy guarantee: non-members never receive the bytes.
+    // Only ever return a private message to one of its two participants. This filter is
+    // the whole privacy guarantee: non-members never receive the bytes.
     .filter(m => Array.isArray(m.members) && m.members.includes(tag))
     .filter(m => m.ts > since)
 

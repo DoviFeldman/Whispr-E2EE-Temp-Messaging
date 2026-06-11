@@ -130,16 +130,16 @@ export default function RoomPage() {
   const [colorMap, setColorMap] = useState({}) // senderTag -> color, for the other party
   const [pickingColor, setPickingColor] = useState(false)
   const [colorInput, setColorInput] = useState('')
-  // ── Whisper (private side-chat) state ──
-  const [whisperMsgs, setWhisperMsgs] = useState([])          // raw whispers I'm a member of
-  const [whisperCache, setWhisperCache] = useState({})        // id -> decrypted text
-  const [lastSeenWhisper, setLastSeenWhisper] = useState(0)
-  const [activeWhisper, setActiveWhisper] = useState(null)    // the other person's senderTag, or null
-  const [whisperInput, setWhisperInput] = useState('')
-  const [whisperMinimized, setWhisperMinimized] = useState(false)
-  const [whisperHeight, setWhisperHeight] = useState(280)
-  const [whisperMenuFor, setWhisperMenuFor] = useState(null)  // message id whose whisper action is showing
-  const whisperBottomRef = useRef(null)
+  // ── Private message (private side-chat) state ──
+  const [privateMsgs, setPrivateMsgs] = useState([])          // raw private messages I'm a member of
+  const [privateCache, setPrivateCache] = useState({})        // id -> decrypted text
+  const [lastSeenPrivate, setLastSeenPrivate] = useState(0)
+  const [activePrivate, setActivePrivate] = useState(null)    // the other person's senderTag, or null
+  const [privateInput, setPrivateInput] = useState('')
+  const [privateMinimized, setPrivateMinimized] = useState(false)
+  const [privateHeight, setPrivateHeight] = useState(280)
+  const [privateMenuFor, setPrivateMenuFor] = useState(null)  // message id whose private action is showing
+  const privateBottomRef = useRef(null)
   const pollRef = useRef(null)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -304,25 +304,25 @@ export default function RoomPage() {
           setLastSeen(data.messages[data.messages.length - 1].ts)
         }
 
-        // Fetch new whispers addressed to me (server only returns ones I'm a member of)
-        const wr = await fetch(`/api/get-whispers?roomId=${roomId}&tag=${myTag}&since=${lastSeenWhisper}`)
+        // Fetch new privates addressed to me (server only returns ones I'm a member of)
+        const wr = await fetch(`/api/get-private-messages?roomId=${roomId}&tag=${myTag}&since=${lastSeenPrivate}`)
         const wdata = await wr.json()
         if (wdata.exists && wdata.messages.length > 0) {
-          setWhisperMsgs(prev => {
+          setPrivateMsgs(prev => {
             const ids = new Set(prev.map(m => m.id))
             const newOnes = wdata.messages.filter(m => !ids.has(m.id))
             return newOnes.length ? [...prev, ...newOnes] : prev
           })
-          setLastSeenWhisper(wdata.messages[wdata.messages.length - 1].ts)
-          // Auto-open the pane when a whisper arrives from someone (only if none open yet)
+          setLastSeenPrivate(wdata.messages[wdata.messages.length - 1].ts)
+          // Auto-open the pane when a private arrives from someone (only if none open yet)
           const fromOther = wdata.messages.find(m => m.senderTag !== myTag)
-          if (fromOther) setActiveWhisper(prev => prev || fromOther.senderTag)
+          if (fromOther) setActivePrivate(prev => prev || fromOther.senderTag)
         }
       }
     }, 1500)
 
     return () => clearInterval(pollRef.current)
-  }, [phase, sharedKey, roomId, lastSeen, lastSeenWhisper, myTag, keyPairRef])
+  }, [phase, sharedKey, roomId, lastSeen, lastSeenPrivate, myTag, keyPairRef])
 
   // Decrypt messages as they arrive
   useEffect(() => {
@@ -341,25 +341,25 @@ export default function RoomPage() {
     })
   }, [messages, sharedKey, decryptedCache])
 
-  // Decrypt whisper messages as they arrive (same room key, reused helpers)
+  // Decrypt private messages as they arrive (same room key, reused helpers)
   useEffect(() => {
     if (!sharedKey) return
-    whisperMsgs.forEach(async (m) => {
-      if (whisperCache[m.id] !== undefined) return
+    privateMsgs.forEach(async (m) => {
+      if (privateCache[m.id] !== undefined) return
       const plain = await decryptMessage(sharedKey, m.encryptedPayload, m.iv)
-      setWhisperCache(prev => ({ ...prev, [m.id]: plain }))
+      setPrivateCache(prev => ({ ...prev, [m.id]: plain }))
     })
-  }, [whisperMsgs, sharedKey, whisperCache])
+  }, [privateMsgs, sharedKey, privateCache])
 
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [decryptedCache])
 
-  // Auto-scroll the whisper pane
+  // Auto-scroll the private pane
   useEffect(() => {
-    whisperBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [whisperCache, activeWhisper, whisperMinimized])
+    privateBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [privateCache, activePrivate, privateMinimized])
 
   // Save this room to the chat list in localStorage when we enter chatting phase
   useEffect(() => {
@@ -455,35 +455,35 @@ export default function RoomPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText() }
   }
 
-  // ── Whisper actions ──
-  const startWhisper = (otherTag) => {
+  // ── Private actions ──
+  const startPrivate = (otherTag) => {
     if (!otherTag || otherTag === myTag) return
-    setActiveWhisper(otherTag)
-    setWhisperMinimized(false)
-    setWhisperMenuFor(null)
+    setActivePrivate(otherTag)
+    setPrivateMinimized(false)
+    setPrivateMenuFor(null)
   }
 
-  const sendWhisper = async () => {
-    if (!whisperInput.trim() || !sharedKey || !activeWhisper || !myTag) return
-    const members = [myTag, activeWhisper].sort()
-    const { encryptedPayload, iv } = await encryptMessage(sharedKey, whisperInput.trim(), displayName, bubbleColor)
-    await fetch('/api/send-whisper', {
+  const sendPrivate = async () => {
+    if (!privateInput.trim() || !sharedKey || !activePrivate || !myTag) return
+    const members = [myTag, activePrivate].sort()
+    const { encryptedPayload, iv } = await encryptMessage(sharedKey, privateInput.trim(), displayName, bubbleColor)
+    await fetch('/api/send-private-message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId, encryptedPayload, iv, senderTag: myTag, members }),
     })
-    setWhisperInput('')
+    setPrivateInput('')
   }
 
   // Drag the handle to resize the pane up/down
-  const startWhisperDrag = (e) => {
+  const startPrivateDrag = (e) => {
     e.preventDefault()
     const startY = e.touches ? e.touches[0].clientY : e.clientY
-    const startH = whisperHeight
+    const startH = privateHeight
     const move = (ev) => {
       const y = ev.touches ? ev.touches[0].clientY : ev.clientY
       const next = Math.max(120, Math.min(window.innerHeight * 0.7, startH + (startY - y)))
-      setWhisperHeight(next)
+      setPrivateHeight(next)
     }
     const up = () => {
       window.removeEventListener('mousemove', move)
@@ -557,12 +557,12 @@ export default function RoomPage() {
     </Screen>
   )
 
-  // Messages belonging to the currently open whisper (the pair [me, activeWhisper])
-  const whisperPair = activeWhisper ? [myTag, activeWhisper].sort().join('|') : null
-  const whisperThread = whisperPair
-    ? whisperMsgs.filter(m => (m.members || []).slice().sort().join('|') === whisperPair)
+  // Messages belonging to the currently open private (the pair [me, activePrivate])
+  const privatePair = activePrivate ? [myTag, activePrivate].sort().join('|') : null
+  const privateThread = privatePair
+    ? privateMsgs.filter(m => (m.members || []).slice().sort().join('|') === privatePair)
     : []
-  const whisperLabel = activeWhisper ? (nameMap[activeWhisper] || activeWhisper.slice(0, 5)) : ''
+  const privateLabel = activePrivate ? (nameMap[activePrivate] || activePrivate.slice(0, 5)) : ''
 
   // Chatting
   return (
@@ -595,7 +595,7 @@ export default function RoomPage() {
                 <div style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', width: '100%' }}>
                   <div
                     style={{ ...bubbleStyle, background: bgColor, maxWidth: '72%', cursor: isMe ? 'default' : 'pointer' }}
-                    onClick={isMe ? undefined : () => setWhisperMenuFor(prev => prev === m.id ? null : m.id)}
+                    onClick={isMe ? undefined : () => setPrivateMenuFor(prev => prev === m.id ? null : m.id)}
                   >
                     {showLabel && (
                       <div
@@ -715,9 +715,9 @@ export default function RoomPage() {
                     </span>
                   </div>
                 </div>
-                {!isMe && whisperMenuFor === m.id && (
-                  <button onClick={() => startWhisper(m.senderTag)} style={whisperActionBtnStyle}>
-                    🔒 whisper privately
+                {!isMe && privateMenuFor === m.id && (
+                  <button onClick={() => startPrivate(m.senderTag)} style={privateActionBtnStyle}>
+                    🔒 message privately
                   </button>
                 )}
               </div>
@@ -728,23 +728,23 @@ export default function RoomPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Whisper pane — private side-chat, only visible to the two participants */}
-      {activeWhisper && !whisperMinimized && (
-        <div style={{ ...whisperPaneStyle, height: whisperHeight }}>
-          <div style={whisperHandleStyle} onMouseDown={startWhisperDrag} onTouchStart={startWhisperDrag}>
+      {/* Private message pane — only visible to the two participants */}
+      {activePrivate && !privateMinimized && (
+        <div style={{ ...privatePaneStyle, height: privateHeight }}>
+          <div style={privateHandleStyle} onMouseDown={startPrivateDrag} onTouchStart={startPrivateDrag}>
             <div style={{ width: 36, height: 4, borderRadius: 2, background: '#3a3a3a' }} />
           </div>
-          <div style={whisperHeaderStyle}>
-            <span style={{ fontSize: 12, color: '#888', fontFamily: 'monospace' }}>🔒 private · {whisperLabel}</span>
+          <div style={privateHeaderStyle}>
+            <span style={{ fontSize: 12, color: '#888', fontFamily: 'monospace' }}>🔒 private · {privateLabel}</span>
             <div style={{ display: 'flex', gap: 2 }}>
-              <button onClick={() => setWhisperMinimized(true)} style={whisperIconBtn} title="minimize">▾</button>
-              <button onClick={() => setActiveWhisper(null)} style={whisperIconBtn} title="close">✕</button>
+              <button onClick={() => setPrivateMinimized(true)} style={privateIconBtn} title="minimize">▾</button>
+              <button onClick={() => setActivePrivate(null)} style={privateIconBtn} title="close">✕</button>
             </div>
           </div>
-          <div style={whisperMsgsStyle}>
-            {whisperThread.map(m => {
+          <div style={privateMsgsStyle}>
+            {privateThread.map(m => {
               const isMe = m.senderTag === myTag
-              const plain = whisperCache[m.id]
+              const plain = privateCache[m.id]
               const { text: msgText } = parsePayload(plain)
               return (
                 <div key={m.id} style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
@@ -759,25 +759,25 @@ export default function RoomPage() {
                 </div>
               )
             })}
-            {whisperThread.length === 0 && <Dim style={{ textAlign: 'center', marginTop: 20, fontSize: 12 }}>private · only you two can see this</Dim>}
-            <div ref={whisperBottomRef} />
+            {privateThread.length === 0 && <Dim style={{ textAlign: 'center', marginTop: 20, fontSize: 12 }}>private · only you two can see this</Dim>}
+            <div ref={privateBottomRef} />
           </div>
-          <div style={whisperInputBarStyle}>
+          <div style={privateInputBarStyle}>
             <textarea
               style={textareaStyle}
-              value={whisperInput}
-              onChange={e => setWhisperInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWhisper() } }}
-              placeholder="whisper privately"
+              value={privateInput}
+              onChange={e => setPrivateInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrivate() } }}
+              placeholder="private message"
               rows={1}
             />
-            <button onClick={sendWhisper} style={iconBtnStyle} title="send">↑</button>
+            <button onClick={sendPrivate} style={iconBtnStyle} title="send">↑</button>
           </div>
         </div>
       )}
-      {activeWhisper && whisperMinimized && (
-        <button onClick={() => setWhisperMinimized(false)} style={whisperPillStyle}>
-          🔒 private chat with {whisperLabel} · open
+      {activePrivate && privateMinimized && (
+        <button onClick={() => setPrivateMinimized(false)} style={privatePillStyle}>
+          🔒 private chat with {privateLabel} · open
         </button>
       )}
 
@@ -869,37 +869,37 @@ const btnStyle = {
   padding: '10px 14px', color: '#888', fontFamily: 'monospace',
   fontSize: 13, cursor: 'pointer', width: '100%',
 }
-const whisperPaneStyle = {
+const privatePaneStyle = {
   display: 'flex', flexDirection: 'column', flexShrink: 0,
   background: '#141414', borderTop: '1px solid #2a2a2a',
 }
-const whisperHandleStyle = {
+const privateHandleStyle = {
   display: 'flex', justifyContent: 'center', alignItems: 'center',
   padding: '6px 0', cursor: 'ns-resize', touchAction: 'none', flexShrink: 0,
 }
-const whisperHeaderStyle = {
+const privateHeaderStyle = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '0 14px 6px', flexShrink: 0,
 }
-const whisperIconBtn = {
+const privateIconBtn = {
   background: 'none', border: 'none', color: '#777', cursor: 'pointer',
   fontSize: 14, padding: '2px 8px', lineHeight: 1,
 }
-const whisperMsgsStyle = {
+const privateMsgsStyle = {
   flex: 1, overflowY: 'auto', padding: '4px 14px 8px',
   display: 'flex', flexDirection: 'column',
 }
-const whisperInputBarStyle = {
+const privateInputBarStyle = {
   display: 'flex', alignItems: 'flex-end', gap: 8,
   padding: '8px 12px 12px', borderTop: '1px solid #1e1e1e', flexShrink: 0,
 }
-const whisperPillStyle = {
+const privatePillStyle = {
   margin: '0 12px 10px', alignSelf: 'center',
   background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 20,
   color: '#aaa', fontFamily: 'monospace', fontSize: 12,
   padding: '8px 16px', cursor: 'pointer',
 }
-const whisperActionBtnStyle = {
+const privateActionBtnStyle = {
   marginTop: 4, alignSelf: 'flex-start',
   background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8,
   color: '#aaa', fontFamily: 'monospace', fontSize: 11,

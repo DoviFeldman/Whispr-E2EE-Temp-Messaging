@@ -22,7 +22,7 @@ export async function POST(req) {
       encryptedPayload,
       iv,
       senderTag,
-      // The two senderTags allowed to see this whisper (sorted, server-visible only)
+      // The two senderTags allowed to see this private message (sorted, server-visible only)
       members: [...members].sort(),
       ts: Date.now(),
       isFile: !!isFile,
@@ -30,7 +30,7 @@ export async function POST(req) {
       fileType: fileType || null,
     }
 
-    await redis.rpush(`room:${roomId}:whispers`, JSON.stringify(message))
+    await redis.rpush(`room:${roomId}:privateMessages`, JSON.stringify(message))
     await touchRoom(roomId)
 
     return NextResponse.json({ ok: true })
