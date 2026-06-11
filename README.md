@@ -66,3 +66,19 @@ cp .env.example .env.local
 npm install
 npm run dev
 ```
+
+
+
+
+
+Notes!:
+
+Room TTL Dead room storage Total w/ 500 active rooms 2 days (current) ~1.2 MB ~16 MB 7 days ~4 MB ~19 MB 14 days ~8 MB ~23 MB 30 days ~17 MB ~32 MB 90 days ~50 MB ~65 MB 180 days ~100 MB ~115 MB 365 days ~200 MB ~215 MB
+
+Storage ceiling at 256 MB:
+
+Max concurrent rooms: 256 MB / 30 KB = ~8,500 rooms At 2 users/room = ~17,000 concurrent users At a comfortable 50% margin = ~8,500 concurrent users, 4,250 rooms with 100 messages each (50 messages each person) Commands are the other constraint. At your current burn rate (31K used so far this month), and ~3–4 Redis ops per message sent + polling reads, the 500K/month cap is more likely to be the real ceiling before storage is.
+
+(for the paid upstash redis account, dont do that, id just have to pay for the storage im using now, and by the time i hit $1 id just be using as much data as the whole free plan gives me! so i get up to $1 free a month on the free plan, theres no such thing as only $1 a month cause that is the free plan! $2 a month id get twice as much commands per month as the free plan, and so on and so forth)
+
+
