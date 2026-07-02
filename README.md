@@ -54,6 +54,36 @@ That's it. Your app is live.
 
 ### 4. Push notifications (optional but recommended)
 
+## Push notifications setup (optional)
+
+Notifications need three environment variables in Vercel (Project → Settings →
+Environment Variables). They are **optional** — without them the app still works
+completely normally, you just won't get push notifications when the app is closed,
+and that's the only difference. Since this repo is public, these values are never
+put in the code — they live only in Vercel's settings, which are private.
+
+To create the keys, run this one command (no account or install needed):
+
+    npx web-push generate-vapid-keys
+
+Then add the three variables:
+
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY` — the **Public Key** from the command above. This is
+  the app's public identity for the browser push service. It's not a secret (the
+  browser sees it anyway); the `NEXT_PUBLIC_` prefix is what lets the frontend read it.
+- `VAPID_PRIVATE_KEY` — the **Private Key** from the same command. This is the secret
+  that proves to Google/Apple's push servers that the notification really came from
+  your server. Never commit it or share it.
+- `VAPID_SUBJECT` — a contact address in the form `mailto:you@example.com`. Push
+  services require it so they can reach the operator if something's wrong.
+
+After adding them, redeploy. Then in any chat, tap the bell icon next to the message
+box and allow notifications. On iPhone this only works from the installed app
+(Share → Add to Home Screen, iOS 16.4+). The notification never contains message
+text — just "new message" and the room link, so end-to-end encryption is unaffected.
+
+(Doubled here so youll read it again)
+
 Notifications let people get a "new message" alert even when the app is closed. The push payload
 never contains message content — just a generic alert with the room link, so E2EE is preserved.
 
