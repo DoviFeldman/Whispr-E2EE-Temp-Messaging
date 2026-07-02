@@ -1,4 +1,5 @@
 import { redis, ROOM_TTL, touchRoom } from '../../../lib/redis'
+import { notifyRoom } from '../../../lib/push'
 import { NextResponse } from 'next/server'
 
 export async function POST(req) {
@@ -24,6 +25,7 @@ export async function POST(req) {
 
     await redis.rpush(`room:${roomId}:messages`, JSON.stringify(message))
     await touchRoom(roomId)
+    await notifyRoom(roomId, senderTag)
 
     return NextResponse.json({ ok: true })
   } catch (e) {

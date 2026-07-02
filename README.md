@@ -47,9 +47,30 @@ gh repo create whispr --public --push
 2. Add environment variables:
    - `UPSTASH_REDIS_REST_URL` = your Upstash URL
    - `UPSTASH_REDIS_REST_TOKEN` = your Upstash token
+   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` = for push notifications (see below)
 3. Click Deploy
 
 That's it. Your app is live.
+
+### 4. Push notifications (optional but recommended)
+
+Notifications let people get a "new message" alert even when the app is closed. The push payload
+never contains message content — just a generic alert with the room link, so E2EE is preserved.
+
+1. Generate a VAPID keypair (one command, no account needed):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+2. Add the three env vars in Vercel (Project → Settings → Environment Variables):
+   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` = the public key
+   - `VAPID_PRIVATE_KEY` = the private key (keep secret)
+   - `VAPID_SUBJECT` = `mailto:your-email@example.com`
+3. Redeploy.
+
+In a chat, tap the 🔔 button next to the message box to enable notifications on that device.
+
+**On iPhone:** notifications only work when the app is added to the home screen
+(Share → Add to Home Screen, requires iOS 16.4+) — open it from the home screen icon, then tap 🔔.
 
 ---
 
